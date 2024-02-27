@@ -2,16 +2,20 @@ package me.vitornascimento.mynotes.presentation.ui.viewModel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.delay
+import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import me.vitornascimento.mynotes.domain.model.Note
+import me.vitornascimento.mynotes.domain.port.NotesPort
 import me.vitornascimento.mynotes.presentation.ui.NotesScreenState
-import java.util.UUID
+import javax.inject.Inject
 
-class NotesViewModel : ViewModel() {
+@HiltViewModel
+class NotesViewModel @Inject constructor(
+    private val notesPort: NotesPort,
+) : ViewModel() {
 
     private val _state: MutableStateFlow<NotesScreenState> = MutableStateFlow(
         NotesScreenState(
@@ -22,46 +26,40 @@ class NotesViewModel : ViewModel() {
     val state: StateFlow<NotesScreenState>
         get() = _state
 
-    init {
-        loadNotes()
-    }
-
     fun addNote(noteData: Pair<String, String>) {
-        _state.update {
-            val newNote = Note(
-                id = UUID.randomUUID().toString(),
-                title = noteData.first,
-                content = noteData.second
-            )
-            it.copy(notes = it.notes + newNote)
+        viewModelScope.launch {
+            notesPort.createNote(noteData.first, noteData.second)
+            val newNoteList = notesPort.getAllNotes().first()
+            _state.update {
+                it.copy(notes = newNoteList)
+            }
         }
     }
 
     fun deleteNote(noteId: String) {
-        _state.update {
-            it.copy(notes = it.notes.filter { note -> note.id != noteId })
+        viewModelScope.launch {
+            emitLoadingState()
+            notesPort.deleteNote(noteId)
+            val newNoteList = notesPort.getAllNotes().first()
+            _state.update {
+                it.copy(isLoading = false, notes = newNoteList)
+            }
         }
     }
 
     fun loadNotes() {
         viewModelScope.launch {
-            _state.update { NotesScreenState(emptyList(), true) }
+            emitLoadingState()
 
-            delay(3_000)
+            val notes = notesPort.getAllNotes().first()
 
             _state.update {
-                if (loadCount % 2 == 0) {
-                    it.copy(isLoading = false, notes = emptyList(), errorMessage = null)
-                } else {
-                    NotesScreenState(emptyList(), false, "Error loading notes")
-                }
+                it.copy(notes = notes, isLoading = false, errorMessage = null)
             }
-
-            loadCount++
         }
     }
 
-    companion object {
-        var loadCount = 1
+    private fun emitLoadingState() {
+        _state.update { NotesScreenState(emptyList(), true) }
     }
 }
